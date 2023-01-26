@@ -1,4 +1,5 @@
-# ResourceExplicitModels
+# Resource-Explicit Interaction Models for Spatial Populations
+
 Models and data for the forthcoming "Resource-Explicit Interaction Models for Spatial Populations." 
 
 Authors:
