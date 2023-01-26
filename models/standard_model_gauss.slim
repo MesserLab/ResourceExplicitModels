@@ -1,0 +1,97 @@
+// Author: Samuel Champer
+
+species all initialize() {
+    defineCfgParam("SIMULATION_AREA", 100);  // E.g., in hectares or sq km.
+    defineCfgParam("INDIVIDUALS_PER_UNIT_AREA", 100);
+    defineCfgParam("LITTER_SIZE", 8);
+
+    defineConstant("FORAGING_RADIUS", sqrt(1/PI));
+    defineConstant("MIGRATION_DISTANCE", 2 * FORAGING_RADIUS);
+
+    initializeSLiMModelType("nonWF");
+
+    // Foraging
+    initializeInteractionType(1, "xy", reciprocal=T, maxDistance=2 * FORAGING_RADIUS);
+    i1.setInteractionFunction("n", 1, 2 / 3 * FORAGING_RADIUS);
+
+    // Reproduction
+    initializeInteractionType(2, "xy", reciprocal=T, maxDistance=1.5 * FORAGING_RADIUS, sexSegregation="FM");
+}
+
+//// HELPER FUNC FOR CONSTANTS THAT MAY ASLO BE CONFIGURED VIA COMMAND LINE.
+function (void) defineCfgParam(string$ name, lifs value) {
+    if (!exists(name))
+        defineConstant(name, value);
+}
+
+species animal initialize() {
+    initializeSpecies(avatar="O", color="red");
+    initializeSLiMOptions(dimensionality="xy");
+    initializeSex("A");
+}
+
+ticks all 2: first() {
+    i2.evaluate(p1);
+}
+
+//// REPRODUCTION RULES.
+species animal reproduction (NULL, "F") {
+    neighbors = i2.nearestInteractingNeighbors(individual, p1.individualCount, p1);
+    // If no mates are in mate detection range, cannot mate.
+    if (size(neighbors) == 0)
+        return;
+    mate = sample(neighbors, 1);
+    for (i in seqLen(rpois(1, LITTER_SIZE))) {
+        offspring = subpop.addCrossed(individual, mate);
+        do
+            pos = individual.spatialPosition + rnorm(2, 0, MIGRATION_DISTANCE);
+        while (!p1.pointInBounds(pos));
+        offspring.setSpatialPosition(pos);
+    }
+}
+
+ticks all 1 early() {
+    // This code block is present to perfectly match the modeled area in this model to the hexagonally tiled models.
+    hex_side_length = sqrt(4 * (1 / 37 / 6) / sqrt(3));
+    hex_height = hex_side_length * sqrt(3);
+    hexes_wide = 1 + asInteger(sqrt(SIMULATION_AREA) / (1.5 * hex_side_length));
+    hexes_high = asInteger(2 * sqrt(SIMULATION_AREA) / hex_height) + 1;
+    xmax = (hexes_wide - 1) * 1.5 * hex_side_length;
+    ymax = (hexes_high - 1) * hex_height / 2;
+    capacity = asInteger(xmax * ymax / 1 * INDIVIDUALS_PER_UNIT_AREA);
+
+    // Initialize the population.
+    animal.addSubpop("p1", capacity);
+    p1.setSpatialBounds(c(0, 0, xmax, ymax));
+    p1.individuals.setSpatialPosition(p1.pointUniform(p1.individualCount));
+    defineGlobal("INDS_PRE_MORTALITY", p1.individualCount);
+}
+
+//// FITNESS & FORAGING
+ticks all 2: early() {
+    defineGlobal("INDS_PRE_MORTALITY", p1.individualCount);
+    i1.evaluate(p1);
+    competition = i1.localPopulationDensity(p1.individuals);
+    competition_ratio = competition * 1 / INDIVIDUALS_PER_UNIT_AREA;
+    p1.individuals.fitnessScaling = 1 / competition_ratio;
+}
+
+ticks all 2 late() {
+    defineGlobal("TIMER_START", clock());
+}
+
+//// OUTPUT
+ticks all 3:12 late () {
+    catn("Tick: " + community.tick);
+    catn("POP_PRE_MORTALITY: " + INDS_PRE_MORTALITY);
+    catn("POP: " + p1.individualCount);
+    catn("TICK_RUNTIME: " + (clock() - TIMER_START));
+    catn("Males: " + size(p1.subsetIndividuals(sex="M")) +
+        "  Females: " +  size(p1.subsetIndividuals(sex="F")));
+    catn("Newborns: " + size(p1.subsetIndividuals(minAge=0, maxAge=0)) +
+        " ; 1: " + size(p1.subsetIndividuals(minAge=1, maxAge=1)) +
+        " ; 2: " + size(p1.subsetIndividuals(minAge=2, maxAge=2)) +
+        " ; 3: " + size(p1.subsetIndividuals(minAge=3, maxAge=3)) +
+        " ; Avg age: " + sum(p1.individuals.age)/size(p1.individuals) + "\n");
+    defineGlobal("TIMER_START", clock());
+}
