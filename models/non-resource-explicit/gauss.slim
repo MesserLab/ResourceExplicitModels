@@ -2,20 +2,21 @@
 
 species all initialize() {
     defineCfgParam("SIMULATION_AREA", 100);  // E.g., in hectares or sq km.
-    defineCfgParam("INDIVIDUALS_PER_UNIT_AREA", 100);
+    defineCfgParam("FORAGING_AREA", 1);  // E.g., in hectares or sq km.
+    defineCfgParam("INDIVIDUALS_PER_FORAGING_AREA", 100);
     defineCfgParam("LITTER_SIZE", 8);
 
-    defineConstant("FORAGING_RADIUS", sqrt(1/PI));
+    defineConstant("FORAGING_RADIUS", sqrt(FORAGING_AREA/PI));
     defineConstant("MIGRATION_DISTANCE", 2 * FORAGING_RADIUS);
 
     initializeSLiMModelType("nonWF");
 
     // Foraging
     initializeInteractionType(1, "xy", reciprocal=T, maxDistance=2 * FORAGING_RADIUS);
-    i1.setInteractionFunction("l", 1.0);
+    i1.setInteractionFunction("n", 1, 2 / 3 * FORAGING_RADIUS);
 
     // Reproduction
-    initializeInteractionType(2, "xy", reciprocal=T, maxDistance=1.5 * FORAGING_RADIUS, sexSegregation="FM");
+    initializeInteractionType(2, "xy", reciprocal=T, maxDistance=MIGRATION_DISTANCE, sexSegregation="FM");
 }
 
 //// HELPER FUNC FOR CONSTANTS THAT MAY ASLO BE CONFIGURED VIA COMMAND LINE.
@@ -31,17 +32,21 @@ species animal initialize() {
 }
 
 ticks all 2: first() {
+    // Evaluate the spatial interaction for reproduction.
     i2.evaluate(p1);
 }
 
 //// REPRODUCTION RULES.
 species animal reproduction (NULL, "F") {
-    neighbors = i2.nearestInteractingNeighbors(individual, p1.individualCount, p1);
-    // If no mates are in mate detection range, cannot mate.
-    if (size(neighbors) == 0)
+    litter_size = rpois(1, LITTER_SIZE);
+    if (litter_size == 0)
         return;
-    mate = sample(neighbors, 1);
-    for (i in seqLen(rpois(1, LITTER_SIZE))) {
+    // Draw a random mate from among males in range.
+    mate = i2.drawByStrength(individual, 1, p1);
+    // If no mates are in range, cannot mate.
+    if (size(mate) == 0)
+        return;
+    for (i in seqLen(litter_size)) {
         offspring = subpop.addCrossed(individual, mate);
         do
             pos = individual.spatialPosition + rnorm(2, 0, MIGRATION_DISTANCE);
@@ -51,18 +56,10 @@ species animal reproduction (NULL, "F") {
 }
 
 ticks all 1 early() {
-    // This code block is present to perfectly match the modeled area in this model to the hexagonally tiled models.
-    hex_side_length = sqrt(4 * (1 / 37 / 6) / sqrt(3));
-    hex_height = hex_side_length * sqrt(3);
-    hexes_wide = 1 + asInteger(sqrt(SIMULATION_AREA) / (1.5 * hex_side_length));
-    hexes_high = asInteger(2 * sqrt(SIMULATION_AREA) / hex_height) + 1;
-    xmax = (hexes_wide - 1) * 1.5 * hex_side_length;
-    ymax = (hexes_high - 1) * hex_height / 2;
-    capacity = asInteger(xmax * ymax / 1 * INDIVIDUALS_PER_UNIT_AREA);
-
-    // Initialize the population.
+    // Introduce the initial population.
+    capacity = asInteger(round(SIMULATION_AREA / FORAGING_AREA * INDIVIDUALS_PER_FORAGING_AREA));
     animal.addSubpop("p1", capacity);
-    p1.setSpatialBounds(c(0, 0, xmax, ymax));
+    p1.setSpatialBounds(c(0, 0, sqrt(SIMULATION_AREA), sqrt(SIMULATION_AREA)));
     p1.individuals.setSpatialPosition(p1.pointUniform(p1.individualCount));
     defineGlobal("INDS_PRE_MORTALITY", p1.individualCount);
 }
@@ -72,20 +69,20 @@ ticks all 2: early() {
     defineGlobal("INDS_PRE_MORTALITY", p1.individualCount);
     i1.evaluate(p1);
     competition = i1.localPopulationDensity(p1.individuals);
-    competition_ratio = competition * 1 / INDIVIDUALS_PER_UNIT_AREA;
+    competition_ratio = competition * FORAGING_AREA / INDIVIDUALS_PER_FORAGING_AREA;
     p1.individuals.fitnessScaling = 1 / competition_ratio;
 }
 
 ticks all 2 late() {
-    defineGlobal("TIMER_START", clock());
+    defineGlobal("TIMER_START", clock(type="mono"));
 }
 
 //// OUTPUT
-ticks all 3:12 late () {
+ticks all 3:22 late () {
     catn("Tick: " + community.tick);
     catn("POP_PRE_MORTALITY: " + INDS_PRE_MORTALITY);
     catn("POP: " + p1.individualCount);
-    catn("TICK_RUNTIME: " + (clock() - TIMER_START));
+    catn("TICK_RUNTIME: " + (clock(type="mono") - TIMER_START));
     catn("Males: " + size(p1.subsetIndividuals(sex="M")) +
         "  Females: " +  size(p1.subsetIndividuals(sex="F")));
     catn("Newborns: " + size(p1.subsetIndividuals(minAge=0, maxAge=0)) +
@@ -93,5 +90,5 @@ ticks all 3:12 late () {
         " ; 2: " + size(p1.subsetIndividuals(minAge=2, maxAge=2)) +
         " ; 3: " + size(p1.subsetIndividuals(minAge=3, maxAge=3)) +
         " ; Avg age: " + sum(p1.individuals.age)/size(p1.individuals) + "\n");
-    defineGlobal("TIMER_START", clock());
+    defineGlobal("TIMER_START", clock(type="mono"));
 }

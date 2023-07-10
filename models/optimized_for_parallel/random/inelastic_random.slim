@@ -1,0 +1,145 @@
+// Author: Samuel Champer
+
+species all initialize() {
+    defineCfgParam("SIMULATION_AREA", 100);  // E.g., in hectares or sq km.
+    defineCfgParam("FORAGING_AREA", 1);  // E.g., in hectares or sq km.
+    defineCfgParam("INDIVIDUALS_PER_FORAGING_AREA", 100);
+    defineCfgParam("LITTER_SIZE", 8);
+
+    defineConstant("FORAGING_RADIUS", sqrt(FORAGING_AREA/PI));
+    defineConstant("MIGRATION_DISTANCE", 2 * FORAGING_RADIUS);
+    defineConstant("NODES_PER_FORAGING_AREA", 20);  // Tiling density.
+
+    initializeSLiMModelType("nonWF");
+
+    // Foraging
+    initializeInteractionType(1, "xy", reciprocal=T, maxDistance=FORAGING_RADIUS);
+
+    // Reproduction
+    initializeInteractionType(2, "xy", reciprocal=T, maxDistance=MIGRATION_DISTANCE, sexSegregation="FM");
+}
+
+//// HELPER FUNC FOR CONSTANTS THAT MAY ASLO BE CONFIGURED VIA COMMAND LINE.
+function (void) defineCfgParam(string$ name, lifs value) {
+    if (!exists(name))
+        defineConstant(name, value);
+}
+
+species resource_node initialize() {
+    initializeSpecies(avatar="V", color="cornflowerblue");
+    initializeSLiMOptions(dimensionality="xy");
+}
+
+species animal initialize() {
+    initializeSpecies(avatar="O", color="red");
+    initializeSLiMOptions(dimensionality="xy");
+    initializeSex("A");
+}
+
+ticks all 2: first() {
+    // Evaluate the spatial interaction for reproduction.
+    i2.evaluate(p2);
+}
+
+//// REPRODUCTION RULES.
+species animal reproduction (NULL) {
+    females = p2.subsetIndividuals(sex="F");
+    // Draw litter sizes in bulk and eliminate all females that have a
+    // litter size of zero; no need to even draw mates for them
+    litter_sizes = rpois(females.size(), LITTER_SIZE);
+    non_zero = (litter_sizes != 0);
+    females = females[non_zero];
+    litter_sizes = litter_sizes[non_zero];
+
+    // Draw mates for the females that remain
+    mates = i2.drawByStrength(females, 1, p2, returnDict=T);
+    mated_indices = mates.compactIndices(preserveOrder=F);
+    females = females[mated_indices];
+    litter_sizes = litter_sizes[mated_indices];
+    for (idx in seqAlong(females)) {
+        mate = mates.getValue(idx);
+        mother = females[idx];
+        offspring = subpop.addCrossed(mother, mate, count=litter_sizes[idx]);
+        offspring.setSpatialPosition(mother.spatialPosition);
+    }
+    self.active = 0;
+}
+
+function (object) randomNodes(void) {
+    /*
+        Set up the node positions and resource values for the resource-explicit interaction.
+    */
+    num_nodes = asInteger(round(SIMULATION_AREA / FORAGING_AREA * NODES_PER_FORAGING_AREA));
+    return Dictionary(
+                    "xs", runif(num_nodes, 0, sqrt(SIMULATION_AREA)),
+                    "ys", runif(num_nodes, 0, sqrt(SIMULATION_AREA)),
+                    "resources", rep(INDIVIDUALS_PER_FORAGING_AREA / NODES_PER_FORAGING_AREA, num_nodes)
+                    );
+}
+
+ticks all 1 early() {
+    // Get the coordinates and resource amounts for the resource nodes.
+    nodeData = randomNodes();
+    // Add the node population.
+    resource_node.addSubpop("p1", size(nodeData.getValue("resources")));
+    p1.setSpatialBounds(c(0, 0, sqrt(SIMULATION_AREA), sqrt(SIMULATION_AREA)));
+    p1.individuals.x = nodeData.getValue("xs");
+    p1.individuals.y = nodeData.getValue("ys");
+    p1.individuals.tagF = nodeData.getValue("resources");
+
+    // Initialize the population.
+    capacity = asInteger(SIMULATION_AREA / FORAGING_AREA * INDIVIDUALS_PER_FORAGING_AREA);
+    animal.addSubpop("p2", capacity);
+    p2.setSpatialBounds(c(0, 0, sqrt(SIMULATION_AREA), sqrt(SIMULATION_AREA)));
+    p2.individuals.setSpatialPosition(p2.pointUniform(p2.individualCount));
+    defineGlobal("INDS_PRE_MORTALITY", p2.individualCount);
+}
+
+//// FITNESS & FORAGING
+ticks all 2: early() {
+    defineGlobal("INDS_PRE_MORTALITY", p2.individualCount);
+    // Deviate new offspring from their maternal positions
+    unmoved_newborns = p2.subsetIndividuals(maxAge=0);
+    maternal_positions = unmoved_newborns.spatialPosition;
+    while (size(unmoved_newborns)) {
+        deviated_positions = maternal_positions + rnorm(size(unmoved_newborns) * 2, 0, MIGRATION_DISTANCE);
+        unmoved_newborns.setSpatialPosition(deviated_positions);
+        // Set up next iteration
+        out_of_bounds = !p2.pointInBounds(deviated_positions);
+        unmoved_newborns = unmoved_newborns[out_of_bounds];
+        maternal_positions = maternal_positions[repEach(out_of_bounds, 2)];
+    }
+    // Each node evenly divides resources to all individuals within range.
+    i1.evaluate(c(p2, p1));
+    p2.individuals.fitnessScaling = 0.0;
+    nodes = p1.individuals;
+    customer_vectors = i1.nearestNeighbors(nodes, p2.individualCount, p2, returnDict=T);
+    for (idx in seqAlong(nodes)) {
+        customers = customer_vectors.getValue(idx);
+        customers.fitnessScaling = customers.fitnessScaling + nodes[idx].tagF / size(customers);
+    }
+    p2.individuals.fitnessScaling = pmin(p2.individuals.fitnessScaling, 1.0);
+
+    // Move resource nodes to new random positions for the next time step.
+    p1.individuals.setSpatialPosition(p1.pointUniform(p1.individualCount));
+}
+
+ticks all 2 late() {
+    defineGlobal("TIMER_START", clock(type="mono"));
+}
+
+//// OUTPUT
+ticks all 3:22 late () {
+    catn("Time: " + community.tick);
+    catn("POP_PRE_MORTALITY: " + INDS_PRE_MORTALITY);
+    catn("POP: " + p2.individualCount);
+    catn("TICK_RUNTIME: " + (clock(type="mono") - TIMER_START));
+    catn("Males: " + size(p2.subsetIndividuals(sex="M")) +
+        "  Females: " +  size(p2.subsetIndividuals(sex="F")));
+    catn("Newborns: " + size(p2.subsetIndividuals(minAge=0, maxAge=0)) +
+        " ; 1: " + size(p2.subsetIndividuals(minAge=1, maxAge=1)) +
+        " ; 2: " + size(p2.subsetIndividuals(minAge=2, maxAge=2)) +
+        " ; 3: " + size(p2.subsetIndividuals(minAge=3, maxAge=3)) +
+        " ; Avg age: " + sum(p2.individuals.age)/p2.individualCount + "\n");
+    defineGlobal("TIMER_START", clock(type="mono"));
+}
