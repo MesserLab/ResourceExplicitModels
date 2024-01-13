@@ -16,4 +16,4 @@ Models are seperated into six folders.
 other_resource_explicit_models: contains an additional version of the elastic model that has been optimized for a species with infrequent dispersal. This model uses a square tiling, but could also be implimented with a hexagonal tiling. This folder also contains versions of each of the four main resource-explicit model variants that have been altered to have a semi-fixed population size. These models use a square tiling, but could be implimented with any resource placement method.
 
 
-#### Note: These models require a minimum of the pre-release version of SLiM available on GitHub: https://github.com/MesserLab/SLiM
+#### Note: These models require a minimum of SLiM version 4.1, available at https://messerlab.org/slim/ or https://github.com/MesserLab/SLiM
