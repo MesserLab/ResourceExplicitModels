@@ -16,3 +16,5 @@ Models are seperated into five folders.
 
 
 #### Note: These models require a minimum of SLiM version 4.1, available at https://messerlab.org/slim/ or https://github.com/MesserLab/SLiM
+
+[![DOI](https://zenodo.org/badge/593493308.svg)](https://zenodo.org/doi/10.5281/zenodo.13743327)
