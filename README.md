@@ -1,6 +1,7 @@
 # Resource-Explicit Interaction Models for Spatial Populations
 
-Models and data for the forthcoming "Resource-Explicit Interaction Models for Spatial Populations."
+Models and data for "Resource-explicit interactions in spatial population models,"
+https://besjournals.onlinelibrary.wiley.com/doi/full/10.1111/2041-210X.14432
 
 Authors:
 Samuel E. Champer, Bryan Chae, Benjamin C. Haller, Jackson Champer, Philipp W. Messer
